@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>whisper.cpp Voice Test</title>
+    <style>
+      :root {
+        --bg: #f6f4ef;
+        --panel: #fffdf8;
+        --ink: #15120c;
+        --accent: #005f73;
+        --accent-soft: #94d2bd;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 10% 15%, #e9d8a655 0%, transparent 38%),
+          radial-gradient(circle at 90% 85%, #94d2bd55 0%, transparent 40%),
+          var(--bg);
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .card {
+        width: min(760px, 100%);
+        background: var(--panel);
+        border-radius: 18px;
+        padding: 22px;
+        border: 2px solid #00000012;
+        box-shadow: 0 14px 44px #00000010;
+      }
+      h1 { margin: 0 0 8px; font-size: clamp(1.4rem, 2.8vw, 2rem); }
+      p { margin: 0 0 14px; opacity: 0.82; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+      button {
+        border: 0;
+        border-radius: 999px;
+        cursor: pointer;
+        padding: 11px 16px;
+        font-size: 1rem;
+      }
+      #recordBtn { background: var(--accent); color: #fff; }
+      #recordBtn.recording { background: #b00020; }
+      #clearBtn { background: var(--accent-soft); color: #01282f; }
+      #status { min-height: 24px; margin: 0 0 12px; font-weight: 600; }
+      textarea {
+        width: 100%;
+        min-height: 220px;
+        resize: vertical;
+        border-radius: 12px;
+        border: 1px solid #0000002a;
+        padding: 12px;
+        font: 1rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>whisper.cpp Voice-to-Text Test</h1>
+      <p>Press record, speak, then stop. Audio stays local and is transcribed on your machine.</p>
+      <div class="row">
+        <button id="recordBtn">Start Recording</button>
+        <button id="clearBtn">Clear Text</button>
+      </div>
+      <div id="status">Idle</div>
+      <textarea id="output" placeholder="Transcription appears here..."></textarea>
+    </main>
+
+    <script>
+      const recordBtn = document.getElementById("recordBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const statusEl = document.getElementById("status");
+      const outputEl = document.getElementById("output");
+
+      let recorder = null;
+      let stream = null;
+      let chunks = [];
+      let recording = false;
+
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      async function startRecording() {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        chunks = [];
+        recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        };
+
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(chunks, { type: "audio/webm" });
+          await transcribe(audioBlob);
+          stream.getTracks().forEach((track) => track.stop());
+          stream = null;
+        };
+
+        recorder.start();
+        recording = true;
+        recordBtn.textContent = "Stop Recording";
+        recordBtn.classList.add("recording");
+        setStatus("Recording...");
+      }
+
+      async function stopRecording() {
+        if (!recorder) return;
+        recorder.stop();
+        recording = false;
+        recordBtn.textContent = "Start Recording";
+        recordBtn.classList.remove("recording");
+        setStatus("Uploading...");
+      }
+
+      async function transcribe(blob) {
+        try {
+          const formData = new FormData();
+          formData.append("file", blob, "recording.webm");
+          formData.append("response_format", "json");
+
+          setStatus("Transcribing...");
+          const response = await fetch("/inference", {
+            method: "POST",
+            body: formData,
+          });
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || payload.message || "Transcription failed");
+          }
+
+          outputEl.value = payload.text || JSON.stringify(payload, null, 2);
+          setStatus("Done");
+        } catch (error) {
+          setStatus(`Error: ${error.message}`);
+        }
+      }
+
+      recordBtn.addEventListener("click", async () => {
+        try {
+          if (recording) {
+            await stopRecording();
+          } else {
+            await startRecording();
+          }
+        } catch (error) {
+          recording = false;
+          recordBtn.textContent = "Start Recording";
+          recordBtn.classList.remove("recording");
+          setStatus(`Error: ${error.message}`);
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        outputEl.value = "";
+        setStatus("Idle");
+      });
+    </script>
+  </body>
+</html>

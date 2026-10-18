@@ -1,0 +1,9 @@
+# Third-party source, models and toolchains: fetched or built locally, never committed.
+third_party/
+android-sdk/
+.downloads/
+.gradle-home/
+.tools/
+
+
+.DS_Store
